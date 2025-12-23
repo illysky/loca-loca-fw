@@ -222,6 +222,13 @@ bool lock_state_is_calibrated(void) {
 // ============================================================================
 
 esp_err_t lock_state_calibrate(void) {
+    // Only allow calibration if uncalibrated OR unlocked
+    if (state.calibrated && state.state != LOCK_STATE_UNLOCKED) {
+        ESP_LOGE(TAG, "Cannot calibrate - must be unlocked first!");
+        ESP_LOGE(TAG, "Current state: %s", lock_state_get_string());
+        return ESP_ERR_INVALID_STATE;
+    }
+    
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
     ESP_LOGI(TAG, "║      MANUAL CALIBRATION               ║");
     ESP_LOGI(TAG, "║   (Set current position as LOCKED)    ║");
@@ -236,7 +243,7 @@ esp_err_t lock_state_calibrate(void) {
     ESP_LOGI(TAG, "Unlock will rotate %.1f° CW from here", UNLOCK_ROTATION_DEG);
     ESP_LOGI(TAG, "Lock will rotate %.1f° CCW back", UNLOCK_ROTATION_DEG);
     
-    // Update state
+    // Update state - temporarily set as locked for the unlock operation
     xSemaphoreTake(state.mutex, portMAX_DELAY);
     state.calibrated = true;
     state.lock_angle_deg = lock_angle;
@@ -251,6 +258,15 @@ esp_err_t lock_state_calibrate(void) {
     ESP_LOGI(TAG, "║  Lock angle: %6.1f°                  ║", lock_angle);
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
     
+    // Automatically move to unlocked position
+    ESP_LOGI(TAG, "Auto-moving to UNLOCKED position...");
+    esp_err_t ret = lock_state_move_to_unlock();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to move to unlock position after calibration");
+        return ret;
+    }
+    
+    ESP_LOGI(TAG, "✅ Calibration complete - now in UNLOCKED position");
     return ESP_OK;
 }
 
