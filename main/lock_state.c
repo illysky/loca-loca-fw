@@ -538,8 +538,8 @@ esp_err_t lock_state_move_to_unlock(void) {
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // For unlock, we always go the "unlock direction" (opposite of lock)
-    stepper_dir_t motor_dir = (dir == MAGNET_DIR_CW_POSITIVE) ? STEPPER_DIR_CCW : STEPPER_DIR_CW;
+    // For unlock, we go CW (opposite of calibration which went CCW to find lock)
+    stepper_dir_t motor_dir = (dir == MAGNET_DIR_CW_POSITIVE) ? STEPPER_DIR_CW : STEPPER_DIR_CCW;
     gpio_set_level(PIN_TMC_DIR, motor_dir);
     
     // Reset encoder revolution counter to track how far we've gone

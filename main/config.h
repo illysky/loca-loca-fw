@@ -98,8 +98,8 @@
 // StallGuard threshold (0-255)
 // Lower = more sensitive, Higher = less sensitive
 // Two thresholds: sensitive for calibration, less sensitive for normal operation
-#define TMC_STALLGUARD_THRESH_CALIBRATE  50    // Calibration threshold (more sensitive)
-#define TMC_STALLGUARD_THRESH_OPERATE    100   // Normal operation threshold (less sensitive)
+#define TMC_STALLGUARD_THRESH_CALIBRATE  40   // Calibration threshold (more sensitive)
+#define TMC_STALLGUARD_THRESH_OPERATE    40   // Normal operation threshold (less sensitive)
 #define TMC_STALLGUARD_THRESH   TMC_STALLGUARD_THRESH_OPERATE  // Default for legacy code
 
 // StallGuard filter (true = enable 4-step filter)
