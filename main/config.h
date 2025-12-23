@@ -149,7 +149,7 @@
 // Encoder-based stall detection sensitivity
 // Higher values = LESS sensitive (harder to trigger stall)
 #define STALL_MIN_MOVEMENT_DEG      1        // Min movement per check to count as "moving" (lower = less sensitive)
-#define STALL_COUNT_THRESHOLD       10           // Consecutive no-movement checks before stall (higher = less sensitive)
+#define STALL_COUNT_THRESHOLD       100           // Consecutive no-movement checks before stall (higher = less sensitive)
 
 // -----------------------------------------------------------------------------
 // WiFi Configuration

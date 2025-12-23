@@ -223,138 +223,39 @@ bool lock_state_is_calibrated(void) {
 
 esp_err_t lock_state_calibrate(void) {
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
-    ESP_LOGI(TAG, "║      STARTING CALIBRATION             ║");
-    ESP_LOGI(TAG, "║   (Using encoder stall detection)     ║");
+    ESP_LOGI(TAG, "║      MANUAL CALIBRATION               ║");
+    ESP_LOGI(TAG, "║   (Set current position as LOCKED)    ║");
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
     
-    xSemaphoreTake(state.mutex, portMAX_DELAY);
-    state.state = LOCK_STATE_CALIBRATING;
-    state.motor_active = true;
-    xSemaphoreGive(state.mutex);
-    
-    // Read starting angle
-    float start_angle = read_encoder_degrees();
-    ESP_LOGI(TAG, "Starting angle: %.1f°", start_angle);
-    
-    // Enable motor
-    stepper_enable();
-    vTaskDelay(pdMS_TO_TICKS(100));
-    
-    // Rotate CCW until encoder stops moving (this finds the lock position)
-    ESP_LOGI(TAG, "Rotating CCW to find lock position...");
-    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CCW);
-    
-    int32_t max_steps = LOCK_MAX_STEPS * 2;
-    bool stall_detected = false;
-    int32_t steps_taken = 0;
-    
-    uint32_t step_delay_us = 1000000 / CALIBRATE_SPEED_HZ;
-    
-    // Encoder-based stall detection (using config values)
-    float last_check_angle = start_angle;
-    int stall_count = 0;
-    
-    while (steps_taken < max_steps && !stall_detected) {
-        // Generate step
-        gpio_set_level(PIN_TMC_STEP, 1);
-        esp_rom_delay_us(10);
-        gpio_set_level(PIN_TMC_STEP, 0);
-        esp_rom_delay_us(step_delay_us);
-        
-        steps_taken++;
-        
-        // Check encoder every 100 steps
-        if (steps_taken % 100 == 0 && steps_taken > 200) {
-            float current_angle = read_encoder_degrees();
-            float movement = fabsf(angle_diff(last_check_angle, current_angle));
-            
-            if (movement < STALL_MIN_MOVEMENT_DEG) {
-                stall_count++;
-                ESP_LOGI(TAG, "No movement detected (%d/%d), angle=%.1f°", 
-                         stall_count, STALL_COUNT_THRESHOLD, current_angle);
-                if (stall_count >= STALL_COUNT_THRESHOLD) {
-                    ESP_LOGI(TAG, "Stall detected at step %ld - encoder stopped moving", (long)steps_taken);
-                    stall_detected = true;
-                }
-            } else {
-                stall_count = 0;  // Reset if we see movement
-            }
-            last_check_angle = current_angle;
-        }
-    }
-    
-    if (!stall_detected) {
-        ESP_LOGE(TAG, "Calibration failed - encoder never stopped");
-        stepper_disable();
-        
-        xSemaphoreTake(state.mutex, portMAX_DELAY);
-        state.state = LOCK_STATE_ERROR;
-        state.motor_active = false;
-        xSemaphoreGive(state.mutex);
-        
-        return ESP_ERR_TIMEOUT;
-    }
-    
-    // Read angle at stall - this is our lock position
-    float stall_angle = read_encoder_degrees();
-    ESP_LOGI(TAG, "Lock position found at: %.1f°", stall_angle);
-    
-    // Back off slightly from the hard stop
-    ESP_LOGI(TAG, "Backing off %.1f degrees...", LOCK_BACKOFF_DEG);
-    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);  // Reverse direction
-    
-    as5600_reset_revolutions();
-    int backoff_steps = 0;
-    int max_backoff = 500;
-    // Back off by a fixed number of degrees using encoder
-    float backoff_target = LOCK_BACKOFF_DEG / 360.0f;  // Target revolutions
-    while (backoff_steps < max_backoff) {
-        gpio_set_level(PIN_TMC_STEP, 1);
-        esp_rom_delay_us(10);
-        gpio_set_level(PIN_TMC_STEP, 0);
-        esp_rom_delay_us(step_delay_us);
-        backoff_steps++;
-        
-        if (backoff_steps % 20 == 0) {
-            as5600_update();
-            float revs = fabsf(as5600_get_total_revolutions());
-            if (revs >= backoff_target) {
-                break;
-            }
-        }
-    }
-    
-    // Final position is our lock angle
+    // Simply read the current encoder angle - this is our lock position
+    // User must manually position the lock to "locked" before calling this
     float lock_angle = read_encoder_degrees();
-    // Unlock angle is UNLOCK_ROTATION_DEG CW from lock
-    float unlock_angle = normalize_angle(lock_angle + UNLOCK_ROTATION_DEG);
     
-    ESP_LOGI(TAG, "Calibration complete!");
-    ESP_LOGI(TAG, "  Lock angle:   %.1f°", lock_angle);
-    ESP_LOGI(TAG, "  Unlock angle: %.1f°", unlock_angle);
-    
-    // Disable motor
-    stepper_disable();
+    ESP_LOGI(TAG, "Current encoder angle: %.1f°", lock_angle);
+    ESP_LOGI(TAG, "This is now the LOCKED position");
+    ESP_LOGI(TAG, "Unlock will rotate %.1f° CW from here", UNLOCK_ROTATION_DEG);
+    ESP_LOGI(TAG, "Lock will rotate %.1f° CCW back", UNLOCK_ROTATION_DEG);
     
     // Update state
     xSemaphoreTake(state.mutex, portMAX_DELAY);
     state.calibrated = true;
     state.lock_angle_deg = lock_angle;
-    state.unlock_angle_deg = unlock_angle;
-    state.magnet_dir = MAGNET_DIR_CW_POSITIVE;  // Not used anymore but keep for compatibility
+    state.unlock_angle_deg = normalize_angle(lock_angle + UNLOCK_ROTATION_DEG);
+    state.magnet_dir = MAGNET_DIR_CW_POSITIVE;
     state.state = LOCK_STATE_LOCKED;
     state.motor_active = false;
     xSemaphoreGive(state.mutex);
     
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
     ESP_LOGI(TAG, "║      CALIBRATION COMPLETE             ║");
+    ESP_LOGI(TAG, "║  Lock angle: %6.1f°                  ║", lock_angle);
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
     
     return ESP_OK;
 }
 
 // ============================================================================
-// Lock/Unlock Operations
+// Lock/Unlock Operations (Relative rotation - UNLOCK_ROTATION_DEG in each direction)
 // ============================================================================
 
 esp_err_t lock_state_move_to_lock(void) {
@@ -363,94 +264,80 @@ esp_err_t lock_state_move_to_lock(void) {
         return ESP_ERR_INVALID_STATE;
     }
     
-    ESP_LOGI(TAG, "Moving to LOCK position...");
+    float start_angle = read_encoder_degrees();
+    ESP_LOGI(TAG, "LOCKING: Rotating %.1f° CCW from %.1f°", UNLOCK_ROTATION_DEG, start_angle);
     
     xSemaphoreTake(state.mutex, portMAX_DELAY);
     state.state = LOCK_STATE_MOVING;
     state.motor_active = true;
-    float target = state.lock_angle_deg;
-    float start_angle = state.current_angle_deg;
     xSemaphoreGive(state.mutex);
-    
-    ESP_LOGI(TAG, "Current: %.1f°, Target: %.1f°", start_angle, target);
-    
-    if (fabsf(angle_diff(start_angle, target)) < LOCK_ANGLE_TOLERANCE_DEG) {
-        ESP_LOGI(TAG, "Already at lock position");
-        xSemaphoreTake(state.mutex, portMAX_DELAY);
-        state.state = LOCK_STATE_LOCKED;
-        state.motor_active = false;
-        xSemaphoreGive(state.mutex);
-        return ESP_OK;
-    }
     
     // Enable motor
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // Lock always goes CCW (same direction calibration used to find lock position)
-    stepper_dir_t motor_dir = STEPPER_DIR_CCW;
-    gpio_set_level(PIN_TMC_DIR, motor_dir);
+    // Lock goes CCW (relative rotation)
+    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CCW);
     
-    // Move until we reach target angle, using encoder-based stall detection
+    // Reset revolution counter to track relative movement
+    as5600_reset_revolutions();
+    
     uint32_t step_delay_us = 1000000 / LOCK_SPEED_HZ;
     int steps = 0;
-    int max_steps = LOCK_MAX_STEPS;
+    int max_steps = LOCK_MAX_STEPS * 2;
     bool stall_detected = false;
+    float target_revs = UNLOCK_ROTATION_DEG / 360.0f;
     
-    // Encoder-based stall detection (using config values)
-    float last_check_angle = start_angle;
+    // Encoder-based stall detection
+    float last_revs = 0;
     int stall_count = 0;
+    const float MIN_MOVEMENT_REVS = STALL_MIN_MOVEMENT_DEG / 360.0f;
     
     while (steps < max_steps) {
-        // Generate step
         gpio_set_level(PIN_TMC_STEP, 1);
         esp_rom_delay_us(10);
         gpio_set_level(PIN_TMC_STEP, 0);
         esp_rom_delay_us(step_delay_us);
         steps++;
         
-        // Check position periodically
         if (steps % 50 == 0) {
-            float curr = read_encoder_degrees();
-            float diff = fabsf(angle_diff(curr, target));
+            as5600_update();
+            float revs = fabsf(as5600_get_total_revolutions());
             
-            if (diff < LOCK_ANGLE_TOLERANCE_DEG) {
-                ESP_LOGI(TAG, "Reached lock position at %.1f° (target: %.1f°)", curr, target);
+            // Check if we've rotated enough
+            if (revs >= (target_revs - 0.03f)) {
+                ESP_LOGI(TAG, "Reached lock rotation - %.2f revs (%.1f°)", revs, revs * 360.0f);
                 break;
             }
             
-            // Encoder-based stall detection (lever not down!)
-            float movement = fabsf(angle_diff(last_check_angle, curr));
-            if (movement < STALL_MIN_MOVEMENT_DEG && steps > 200) {
+            // Stall detection (lever not down!)
+            float movement = fabsf(revs - last_revs);
+            if (movement < MIN_MOVEMENT_REVS && steps > 300) {
                 stall_count++;
                 if (stall_count >= STALL_COUNT_THRESHOLD) {
-                    ESP_LOGW(TAG, "⚠️ STALL detected during lock - lever not down! (encoder stopped)");
+                    ESP_LOGW(TAG, "⚠️ STALL detected - lever not down! (revs=%.2f)", revs);
                     stall_detected = true;
                     break;
                 }
             } else {
                 stall_count = 0;
             }
-            last_check_angle = curr;
+            last_revs = revs;
         }
     }
     
-    // Check final position
-    float final_angle = read_encoder_degrees();
-    float final_diff = fabsf(angle_diff(final_angle, target));
+    float final_revs = fabsf(as5600_get_total_revolutions());
     
-    // If stall detected or didn't reach target, return to start position
-    if (stall_detected || final_diff >= LOCK_ANGLE_TOLERANCE_DEG) {
-        ESP_LOGW(TAG, "Lock failed - returning to start position (%.1f°)", start_angle);
+    // If stall detected, return to start position
+    if (stall_detected) {
+        ESP_LOGW(TAG, "Lock failed - returning to start position");
         
-        // Reverse direction to go back
-        gpio_set_level(PIN_TMC_DIR, !motor_dir);
+        gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);  // Reverse
         vTaskDelay(pdMS_TO_TICKS(50));
         
-        // Move back toward start position
+        as5600_reset_revolutions();
         int return_steps = 0;
-        int max_return = LOCK_MAX_STEPS;
-        while (return_steps < max_return) {
+        while (return_steps < max_steps) {
             gpio_set_level(PIN_TMC_STEP, 1);
             esp_rom_delay_us(10);
             gpio_set_level(PIN_TMC_STEP, 0);
@@ -458,10 +345,9 @@ esp_err_t lock_state_move_to_lock(void) {
             return_steps++;
             
             if (return_steps % 50 == 0) {
-                float curr = read_encoder_degrees();
-                float diff = fabsf(angle_diff(curr, start_angle));
-                if (diff < LOCK_ANGLE_TOLERANCE_DEG) {
-                    ESP_LOGI(TAG, "Returned to start position at %.1f°", curr);
+                as5600_update();
+                float revs = fabsf(as5600_get_total_revolutions());
+                if (revs >= (final_revs - 0.03f)) {
                     break;
                 }
             }
@@ -481,13 +367,14 @@ esp_err_t lock_state_move_to_lock(void) {
     
     stepper_disable();
     
+    float final_angle = read_encoder_degrees();
     xSemaphoreTake(state.mutex, portMAX_DELAY);
     state.motor_active = false;
     state.current_angle_deg = final_angle;
     state.state = LOCK_STATE_LOCKED;
     xSemaphoreGive(state.mutex);
     
-    ESP_LOGI(TAG, "✅ LOCKED at %.1f°", final_angle);
+    ESP_LOGI(TAG, "✅ LOCKED at %.1f° (rotated %.1f°)", final_angle, final_revs * 360.0f);
     return ESP_OK;
 }
 
@@ -497,15 +384,13 @@ esp_err_t lock_state_move_to_unlock(void) {
         return ESP_ERR_INVALID_STATE;
     }
     
-    ESP_LOGI(TAG, "Moving to UNLOCK position (360° rotation)...");
+    float start_angle = read_encoder_degrees();
+    ESP_LOGI(TAG, "UNLOCKING: Rotating %.1f° CW from %.1f°", UNLOCK_ROTATION_DEG, start_angle);
     
     xSemaphoreTake(state.mutex, portMAX_DELAY);
     state.state = LOCK_STATE_MOVING;
     state.motor_active = true;
-    float current = state.current_angle_deg;
     xSemaphoreGive(state.mutex);
-    
-    ESP_LOGI(TAG, "Unlocking from %.1f°, rotating %.1f°", current, UNLOCK_ROTATION_DEG);
     
     // Enable motor
     stepper_enable();
