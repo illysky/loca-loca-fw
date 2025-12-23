@@ -224,6 +224,7 @@ bool lock_state_is_calibrated(void) {
 esp_err_t lock_state_calibrate(void) {
     ESP_LOGI(TAG, "╔═══════════════════════════════════════╗");
     ESP_LOGI(TAG, "║      STARTING CALIBRATION             ║");
+    ESP_LOGI(TAG, "║   (Using encoder stall detection)     ║");
     ESP_LOGI(TAG, "╚═══════════════════════════════════════╝");
     
     xSemaphoreTake(state.mutex, portMAX_DELAY);
@@ -235,28 +236,25 @@ esp_err_t lock_state_calibrate(void) {
     float start_angle = read_encoder_degrees();
     ESP_LOGI(TAG, "Starting angle: %.1f°", start_angle);
     
-    // Set sensitive StallGuard threshold for calibration
-    ESP_LOGI(TAG, "Setting calibration StallGuard threshold: %d", TMC_STALLGUARD_THRESH_CALIBRATE);
-    tmc2209_write_reg(0x40, TMC_STALLGUARD_THRESH_CALIBRATE);
-    
     // Enable motor
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // Set up TCOOLTHRS for StallGuard
-    tmc2209_write_reg(0x14, 0xFFFFF);
-    
-    // Rotate CCW until stall (this finds the lock position)
+    // Rotate CCW until encoder stops moving (this finds the lock position)
     ESP_LOGI(TAG, "Rotating CCW to find lock position...");
     gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CCW);
     
-    // Start moving - we'll watch for stall
-    int32_t max_steps = LOCK_MAX_STEPS * 2;  // Allow more travel for calibration
+    int32_t max_steps = LOCK_MAX_STEPS * 2;
     bool stall_detected = false;
     int32_t steps_taken = 0;
     
-    // Use a slower speed for calibration
-    uint32_t step_delay_us = 1000000 / CALIBRATE_SPEED_HZ;  // Slower for reliable stall detection
+    uint32_t step_delay_us = 1000000 / CALIBRATE_SPEED_HZ;
+    
+    // Encoder-based stall detection
+    float last_check_angle = start_angle;
+    int stall_count = 0;
+    const int STALL_THRESHOLD = 3;  // Number of consecutive checks with no movement
+    const float MIN_MOVEMENT_DEG = 2.0f;  // Minimum movement to consider "not stalled"
     
     while (steps_taken < max_steps && !stall_detected) {
         // Generate step
@@ -267,20 +265,28 @@ esp_err_t lock_state_calibrate(void) {
         
         steps_taken++;
         
-        // Check StallGuard every 100 steps
-        if (steps_taken % 100 == 0) {
-            uint16_t sg = tmc2209_get_sg_result();
-            uint16_t threshold = TMC_STALLGUARD_THRESH_CALIBRATE * 2;
+        // Check encoder every 100 steps
+        if (steps_taken % 100 == 0 && steps_taken > 200) {
+            float current_angle = read_encoder_degrees();
+            float movement = fabsf(angle_diff(last_check_angle, current_angle));
             
-            if (sg < threshold && sg != 0xFFFF && steps_taken > 500) {
-                ESP_LOGI(TAG, "Stall detected at step %ld, SG=%d", (long)steps_taken, sg);
-                stall_detected = true;
+            if (movement < MIN_MOVEMENT_DEG) {
+                stall_count++;
+                ESP_LOGI(TAG, "No movement detected (%d/%d), angle=%.1f°", 
+                         stall_count, STALL_THRESHOLD, current_angle);
+                if (stall_count >= STALL_THRESHOLD) {
+                    ESP_LOGI(TAG, "Stall detected at step %ld - encoder stopped moving", (long)steps_taken);
+                    stall_detected = true;
+                }
+            } else {
+                stall_count = 0;  // Reset if we see movement
             }
+            last_check_angle = current_angle;
         }
     }
     
     if (!stall_detected) {
-        ESP_LOGE(TAG, "Calibration failed - no stall detected");
+        ESP_LOGE(TAG, "Calibration failed - encoder never stopped");
         stepper_disable();
         
         xSemaphoreTake(state.mutex, portMAX_DELAY);
@@ -291,37 +297,19 @@ esp_err_t lock_state_calibrate(void) {
         return ESP_ERR_TIMEOUT;
     }
     
-    // Read angle at stall
+    // Read angle at stall - this is our lock position
     float stall_angle = read_encoder_degrees();
-    ESP_LOGI(TAG, "Stall angle: %.1f°", stall_angle);
+    ESP_LOGI(TAG, "Lock position found at: %.1f°", stall_angle);
     
-    // Determine magnet direction (we moved CCW to get here)
-    float angle_change = angle_diff(start_angle, stall_angle);
-    magnet_direction_t detected_dir;
-    if (angle_change < 0) {
-        detected_dir = MAGNET_DIR_CW_POSITIVE;
-        ESP_LOGI(TAG, "Magnet direction: CW = increasing angle (CCW decreased)");
-    } else {
-        detected_dir = MAGNET_DIR_CW_NEGATIVE;
-        ESP_LOGI(TAG, "Magnet direction: CW = decreasing angle (CCW increased)");
-    }
-    
-    // Back off from the stall
+    // Back off slightly from the hard stop
     ESP_LOGI(TAG, "Backing off %.1f degrees...", LOCK_BACKOFF_DEG);
-    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);  // Reverse (was CCW, now CW)
+    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);  // Reverse direction
     
-    float target_angle;
-    if (detected_dir == MAGNET_DIR_CW_POSITIVE) {
-        // We went CCW (decreasing), backoff by going CW (increasing)
-        target_angle = normalize_angle(stall_angle + LOCK_BACKOFF_DEG);
-    } else {
-        // We went CCW (increasing), backoff by going CW (decreasing)
-        target_angle = normalize_angle(stall_angle - LOCK_BACKOFF_DEG);
-    }
-    
-    // Move until we reach backoff position
+    as5600_reset_revolutions();
     int backoff_steps = 0;
-    int max_backoff = 1000;
+    int max_backoff = 500;
+    // Back off by a fixed number of degrees using encoder
+    float backoff_target = LOCK_BACKOFF_DEG / 360.0f;  // Target revolutions
     while (backoff_steps < max_backoff) {
         gpio_set_level(PIN_TMC_STEP, 1);
         esp_rom_delay_us(10);
@@ -329,10 +317,10 @@ esp_err_t lock_state_calibrate(void) {
         esp_rom_delay_us(step_delay_us);
         backoff_steps++;
         
-        if (backoff_steps % 50 == 0) {
-            float curr = read_encoder_degrees();
-            float diff = fabsf(angle_diff(curr, target_angle));
-            if (diff < 2.0f) {
+        if (backoff_steps % 20 == 0) {
+            as5600_update();
+            float revs = fabsf(as5600_get_total_revolutions());
+            if (revs >= backoff_target) {
                 break;
             }
         }
@@ -340,16 +328,12 @@ esp_err_t lock_state_calibrate(void) {
     
     // Final position is our lock angle
     float lock_angle = read_encoder_degrees();
-    // Unlock is 360° CW from lock (opposite direction we came from)
-    float unlock_angle = normalize_angle(lock_angle + 
-        (detected_dir == MAGNET_DIR_CW_POSITIVE ? UNLOCK_ROTATION_DEG : -UNLOCK_ROTATION_DEG));
+    // Unlock angle is UNLOCK_ROTATION_DEG CW from lock
+    float unlock_angle = normalize_angle(lock_angle + UNLOCK_ROTATION_DEG);
     
     ESP_LOGI(TAG, "Calibration complete!");
     ESP_LOGI(TAG, "  Lock angle:   %.1f°", lock_angle);
     ESP_LOGI(TAG, "  Unlock angle: %.1f°", unlock_angle);
-    
-    // Restore normal StallGuard threshold
-    tmc2209_write_reg(0x40, TMC_STALLGUARD_THRESH_OPERATE);
     
     // Disable motor
     stepper_disable();
@@ -359,7 +343,7 @@ esp_err_t lock_state_calibrate(void) {
     state.calibrated = true;
     state.lock_angle_deg = lock_angle;
     state.unlock_angle_deg = unlock_angle;
-    state.magnet_dir = detected_dir;
+    state.magnet_dir = MAGNET_DIR_CW_POSITIVE;  // Not used anymore but keep for compatibility
     state.state = LOCK_STATE_LOCKED;
     state.motor_active = false;
     xSemaphoreGive(state.mutex);
@@ -401,10 +385,6 @@ esp_err_t lock_state_move_to_lock(void) {
         return ESP_OK;
     }
     
-    // Set StallGuard for normal operation
-    tmc2209_write_reg(0x40, TMC_STALLGUARD_THRESH_OPERATE);
-    tmc2209_write_reg(0x14, 0xFFFFF);
-    
     // Enable motor
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -413,11 +393,17 @@ esp_err_t lock_state_move_to_lock(void) {
     stepper_dir_t motor_dir = STEPPER_DIR_CCW;
     gpio_set_level(PIN_TMC_DIR, motor_dir);
     
-    // Move until we reach target angle
+    // Move until we reach target angle, using encoder-based stall detection
     uint32_t step_delay_us = 1000000 / LOCK_SPEED_HZ;
     int steps = 0;
     int max_steps = LOCK_MAX_STEPS;
     bool stall_detected = false;
+    
+    // Encoder-based stall detection
+    float last_check_angle = start_angle;
+    int stall_count = 0;
+    const int STALL_THRESHOLD = 3;
+    const float MIN_MOVEMENT_DEG = 2.0f;
     
     while (steps < max_steps) {
         // Generate step
@@ -437,13 +423,19 @@ esp_err_t lock_state_move_to_lock(void) {
                 break;
             }
             
-            // Check for stall (lever not down!)
-            uint16_t sg = tmc2209_get_sg_result();
-            if (sg < TMC_STALLGUARD_THRESH_OPERATE * 2 && sg != 0xFFFF && steps > 200) {
-                ESP_LOGW(TAG, "⚠️ STALL detected during lock at step %d - lever not down!", steps);
-                stall_detected = true;
-                break;
+            // Encoder-based stall detection (lever not down!)
+            float movement = fabsf(angle_diff(last_check_angle, curr));
+            if (movement < MIN_MOVEMENT_DEG && steps > 200) {
+                stall_count++;
+                if (stall_count >= STALL_THRESHOLD) {
+                    ESP_LOGW(TAG, "⚠️ STALL detected during lock - lever not down! (encoder stopped)");
+                    stall_detected = true;
+                    break;
+                }
+            } else {
+                stall_count = 0;
             }
+            last_check_angle = curr;
         }
     }
     
@@ -519,10 +511,6 @@ esp_err_t lock_state_move_to_unlock(void) {
     
     ESP_LOGI(TAG, "Unlocking from %.1f°, rotating %.1f°", current, UNLOCK_ROTATION_DEG);
     
-    // Set StallGuard for normal operation
-    tmc2209_write_reg(0x40, TMC_STALLGUARD_THRESH_OPERATE);
-    tmc2209_write_reg(0x14, 0xFFFFF);
-    
     // Enable motor
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -534,10 +522,17 @@ esp_err_t lock_state_move_to_unlock(void) {
     // Reset encoder revolution counter to track how far we've gone
     as5600_reset_revolutions();
     
-    // Move until we've gone approximately 360 degrees
+    // Move until we've rotated UNLOCK_ROTATION_DEG
     uint32_t step_delay_us = 1000000 / LOCK_SPEED_HZ;
     int steps = 0;
-    int max_steps = LOCK_MAX_STEPS * 2;  // Allow extra for a full rotation
+    int max_steps = LOCK_MAX_STEPS * 2;
+    float target_revs = UNLOCK_ROTATION_DEG / 360.0f;
+    
+    // Encoder-based stall detection
+    float last_revs = 0;
+    int stall_count = 0;
+    const int STALL_THRESHOLD = 3;
+    const float MIN_MOVEMENT_REVS = 0.005f;  // ~2 degrees
     
     while (steps < max_steps) {
         // Generate step
@@ -551,20 +546,25 @@ esp_err_t lock_state_move_to_unlock(void) {
         if (steps % 50 == 0) {
             as5600_update();
             float revs = fabsf(as5600_get_total_revolutions());
-            float target_revs = UNLOCK_ROTATION_DEG / 360.0f;  // 350° = 0.972 revs
             
             // Check if we've reached the unlock rotation
-            if (revs >= (target_revs - 0.03f)) {  // Within ~10° of target
+            if (revs >= (target_revs - 0.03f)) {
                 ESP_LOGI(TAG, "Reached unlock position - %.2f revolutions (target: %.2f)", revs, target_revs);
                 break;
             }
             
-            // Check for stall (safety)
-            uint16_t sg = tmc2209_get_sg_result();
-            if (sg < TMC_STALLGUARD_THRESH_OPERATE * 2 && sg != 0xFFFF && steps > 500) {
-                ESP_LOGW(TAG, "Stall detected during unlock at step %d, revs=%.2f", steps, revs);
-                break;
+            // Encoder-based stall detection (safety)
+            float movement = fabsf(revs - last_revs);
+            if (movement < MIN_MOVEMENT_REVS && steps > 500) {
+                stall_count++;
+                if (stall_count >= STALL_THRESHOLD) {
+                    ESP_LOGW(TAG, "Stall detected during unlock (encoder stopped) at revs=%.2f", revs);
+                    break;
+                }
+            } else {
+                stall_count = 0;
             }
+            last_revs = revs;
         }
     }
     
@@ -576,8 +576,7 @@ esp_err_t lock_state_move_to_unlock(void) {
     float final_angle = read_encoder_degrees();
     state.current_angle_deg = final_angle;
     
-    // Determine final state
-    float target_revs = UNLOCK_ROTATION_DEG / 360.0f;
+    // Determine final state (target_revs already defined above)
     if (final_revs >= (target_revs - 0.05f)) {  // Within ~18° of target
         state.state = LOCK_STATE_UNLOCKED;
         ESP_LOGI(TAG, "✅ UNLOCKED at %.1f° (%.2f revolutions)", final_angle, final_revs);
