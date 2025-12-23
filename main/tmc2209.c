@@ -473,30 +473,15 @@ esp_err_t tmc2209_configure(const tmc2209_config_t *config) {
     // TSTEP < TPWMTHRS: StealthChop, TSTEP > TPWMTHRS: SpreadCycle
     tmc2209_write_reg(TMC_REG_TPWMTHRS, 0);  // Always StealthChop (when enabled)
     
-    // Configure StallGuard threshold
-    // DIAG pin goes HIGH when SG_RESULT < SGTHRS * 2
-    ESP_LOGI(TAG, "  Setting SGTHRS = %d (stall when SG_RESULT < %d)", 
-             config->stallguard_thresh, config->stallguard_thresh * 2);
-    tmc2209_write_reg(TMC_REG_SGTHRS, config->stallguard_thresh);
+    // DISABLE StallGuard - we use encoder-based stall detection instead
+    // Set SGTHRS=0 and TCOOLTHRS=0 to completely disable StallGuard/CoolStep
+    ESP_LOGI(TAG, "  StallGuard DISABLED (using encoder-based stall detection)");
+    tmc2209_write_reg(TMC_REG_SGTHRS, 0);      // No stall threshold
+    tmc2209_write_reg(TMC_REG_TCOOLTHRS, 0);   // Disable CoolStep/StallGuard
     
-    // Configure TCOOLTHRS (threshold for enabling StallGuard/CoolStep)
-    // StallGuard only works when TSTEP < TCOOLTHRS
-    // Set to max value (0xFFFFF) to enable at all speeds
-    tmc2209_write_reg(TMC_REG_TCOOLTHRS, 0xFFFFF);
-    
-    // Configure COOLCONF (CoolStep) - REQUIRED for StallGuard DIAG output!
-    uint32_t coolconf = 0;
-    if (config->coolstep_enable) {
-        coolconf |= config->coolstep_semin;          // SEMIN (bits 0-3)
-        coolconf |= config->coolstep_semax << 5;     // SEMAX (bits 5-8)
-        coolconf |= config->coolstep_sedn << 13;     // SEDN (bits 13-14)
-        ESP_LOGI(TAG, "  CoolStep: semin=%d, semax=%d, sedn=%d", 
-                 config->coolstep_semin, config->coolstep_semax, config->coolstep_sedn);
-    }
-    if (config->stallguard_filter) {
-        coolconf |= (1 << 24);  // SGT_FILTER
-    }
-    tmc2209_write_reg(TMC_REG_COOLCONF, coolconf);
+    // DISABLE CoolStep (not needed without StallGuard)
+    ESP_LOGI(TAG, "  CoolStep DISABLED");
+    tmc2209_write_reg(TMC_REG_COOLCONF, 0);
     
     // Configure PWMCONF for StealthChop
     uint32_t pwmconf = 0;
