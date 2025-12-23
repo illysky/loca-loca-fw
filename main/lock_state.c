@@ -562,10 +562,11 @@ esp_err_t lock_state_move_to_unlock(void) {
         if (steps % 50 == 0) {
             as5600_update();
             float revs = fabsf(as5600_get_total_revolutions());
+            float target_revs = UNLOCK_ROTATION_DEG / 360.0f;  // 350° = 0.972 revs
             
-            // Check if we've done approximately one full rotation
-            if (revs >= 0.95f) {  // 95% of a rotation
-                ESP_LOGI(TAG, "Reached unlock position - %.2f revolutions", revs);
+            // Check if we've reached the unlock rotation
+            if (revs >= (target_revs - 0.03f)) {  // Within ~10° of target
+                ESP_LOGI(TAG, "Reached unlock position - %.2f revolutions (target: %.2f)", revs, target_revs);
                 break;
             }
             
@@ -587,12 +588,13 @@ esp_err_t lock_state_move_to_unlock(void) {
     state.current_angle_deg = final_angle;
     
     // Determine final state
-    if (final_revs >= 0.9f) {
+    float target_revs = UNLOCK_ROTATION_DEG / 360.0f;
+    if (final_revs >= (target_revs - 0.05f)) {  // Within ~18° of target
         state.state = LOCK_STATE_UNLOCKED;
         ESP_LOGI(TAG, "✅ UNLOCKED at %.1f° (%.2f revolutions)", final_angle, final_revs);
     } else {
         state.state = LOCK_STATE_MID;
-        ESP_LOGW(TAG, "Unlock incomplete - only %.2f revolutions", final_revs);
+        ESP_LOGW(TAG, "Unlock incomplete - only %.2f revolutions (target: %.2f)", final_revs, target_revs);
     }
     xSemaphoreGive(state.mutex);
     

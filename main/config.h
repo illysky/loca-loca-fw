@@ -140,8 +140,8 @@
 // -----------------------------------------------------------------------------
 // Lock State Tracking Settings
 // -----------------------------------------------------------------------------
-#define LOCK_ANGLE_TOLERANCE_DEG    20.0f       // Tolerance for considering position "locked" (degrees)
-#define UNLOCK_ROTATION_DEG         360.0f      // Degrees to rotate for unlock (one full turn)
+#define LOCK_ANGLE_TOLERANCE_DEG    5.0f        // Tolerance for considering position "locked" (degrees)
+#define UNLOCK_ROTATION_DEG         350.0f      // Degrees to rotate for unlock (less than full turn to avoid same angle)
 #define ENCODER_POLL_INTERVAL_MS    100         // How often to poll encoder (ms)
 #define LOCK_BACKOFF_DEG            5.0f        // Degrees to back off after calibration stall
 
