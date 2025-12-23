@@ -43,10 +43,10 @@ static void led_blink(int count, int on_ms, int off_ms) {
         led_set(true);
         vTaskDelay(pdMS_TO_TICKS(on_ms));
         led_set(false);
-        if (i < count - 1) {
-            vTaskDelay(pdMS_TO_TICKS(off_ms));
-        }
+        vTaskDelay(pdMS_TO_TICKS(off_ms));
     }
+    // Restore LED to solid ON after blinking (WiFi connected state)
+    led_set(true);
 }
 
 // ============================================================================

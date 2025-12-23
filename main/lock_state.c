@@ -246,9 +246,9 @@ esp_err_t lock_state_calibrate(void) {
     // Set up TCOOLTHRS for StallGuard
     tmc2209_write_reg(0x14, 0xFFFFF);
     
-    // Rotate CW until stall (this finds the lock position)
-    ESP_LOGI(TAG, "Rotating CW to find lock position...");
-    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);
+    // Rotate CCW until stall (this finds the lock position)
+    ESP_LOGI(TAG, "Rotating CCW to find lock position...");
+    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CCW);
     
     // Start moving - we'll watch for stall
     int32_t max_steps = LOCK_MAX_STEPS * 2;  // Allow more travel for calibration
@@ -295,26 +295,28 @@ esp_err_t lock_state_calibrate(void) {
     float stall_angle = read_encoder_degrees();
     ESP_LOGI(TAG, "Stall angle: %.1f°", stall_angle);
     
-    // Determine magnet direction
+    // Determine magnet direction (we moved CCW to get here)
     float angle_change = angle_diff(start_angle, stall_angle);
     magnet_direction_t detected_dir;
-    if (angle_change > 0) {
+    if (angle_change < 0) {
         detected_dir = MAGNET_DIR_CW_POSITIVE;
-        ESP_LOGI(TAG, "Magnet direction: CW = increasing angle");
+        ESP_LOGI(TAG, "Magnet direction: CW = increasing angle (CCW decreased)");
     } else {
         detected_dir = MAGNET_DIR_CW_NEGATIVE;
-        ESP_LOGI(TAG, "Magnet direction: CW = decreasing angle");
+        ESP_LOGI(TAG, "Magnet direction: CW = decreasing angle (CCW increased)");
     }
     
     // Back off from the stall
     ESP_LOGI(TAG, "Backing off %.1f degrees...", LOCK_BACKOFF_DEG);
-    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CCW);  // Reverse
+    gpio_set_level(PIN_TMC_DIR, STEPPER_DIR_CW);  // Reverse (was CCW, now CW)
     
     float target_angle;
     if (detected_dir == MAGNET_DIR_CW_POSITIVE) {
-        target_angle = normalize_angle(stall_angle - LOCK_BACKOFF_DEG);
-    } else {
+        // We went CCW (decreasing), backoff by going CW (increasing)
         target_angle = normalize_angle(stall_angle + LOCK_BACKOFF_DEG);
+    } else {
+        // We went CCW (increasing), backoff by going CW (decreasing)
+        target_angle = normalize_angle(stall_angle - LOCK_BACKOFF_DEG);
     }
     
     // Move until we reach backoff position
@@ -338,8 +340,9 @@ esp_err_t lock_state_calibrate(void) {
     
     // Final position is our lock angle
     float lock_angle = read_encoder_degrees();
+    // Unlock is 360° CW from lock (opposite direction we came from)
     float unlock_angle = normalize_angle(lock_angle + 
-        (detected_dir == MAGNET_DIR_CW_POSITIVE ? -UNLOCK_ROTATION_DEG : UNLOCK_ROTATION_DEG));
+        (detected_dir == MAGNET_DIR_CW_POSITIVE ? UNLOCK_ROTATION_DEG : -UNLOCK_ROTATION_DEG));
     
     ESP_LOGI(TAG, "Calibration complete!");
     ESP_LOGI(TAG, "  Lock angle:   %.1f°", lock_angle);
