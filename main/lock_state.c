@@ -388,15 +388,11 @@ esp_err_t lock_state_move_to_lock(void) {
     state.motor_active = true;
     float target = state.lock_angle_deg;
     float start_angle = state.current_angle_deg;
-    magnet_direction_t dir = state.magnet_dir;
     xSemaphoreGive(state.mutex);
     
-    // Calculate angle to move
-    float angle_to_move = angle_diff(start_angle, target);
-    ESP_LOGI(TAG, "Current: %.1f°, Target: %.1f°, Delta: %.1f°", 
-             start_angle, target, angle_to_move);
+    ESP_LOGI(TAG, "Current: %.1f°, Target: %.1f°", start_angle, target);
     
-    if (fabsf(angle_to_move) < LOCK_ANGLE_TOLERANCE_DEG) {
+    if (fabsf(angle_diff(start_angle, target)) < LOCK_ANGLE_TOLERANCE_DEG) {
         ESP_LOGI(TAG, "Already at lock position");
         xSemaphoreTake(state.mutex, portMAX_DELAY);
         state.state = LOCK_STATE_LOCKED;
@@ -413,13 +409,8 @@ esp_err_t lock_state_move_to_lock(void) {
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // Determine motor direction based on magnet direction and angle to move
-    stepper_dir_t motor_dir;
-    if (dir == MAGNET_DIR_CW_POSITIVE) {
-        motor_dir = (angle_to_move > 0) ? STEPPER_DIR_CW : STEPPER_DIR_CCW;
-    } else {
-        motor_dir = (angle_to_move > 0) ? STEPPER_DIR_CCW : STEPPER_DIR_CW;
-    }
+    // Lock always goes CCW (same direction calibration used to find lock position)
+    stepper_dir_t motor_dir = STEPPER_DIR_CCW;
     gpio_set_level(PIN_TMC_DIR, motor_dir);
     
     // Move until we reach target angle
@@ -524,11 +515,9 @@ esp_err_t lock_state_move_to_unlock(void) {
     state.state = LOCK_STATE_MOVING;
     state.motor_active = true;
     float current = state.current_angle_deg;
-    float target = state.unlock_angle_deg;
-    magnet_direction_t dir = state.magnet_dir;
     xSemaphoreGive(state.mutex);
     
-    ESP_LOGI(TAG, "Current: %.1f°, Target: %.1f°", current, target);
+    ESP_LOGI(TAG, "Unlocking from %.1f°, rotating %.1f°", current, UNLOCK_ROTATION_DEG);
     
     // Set StallGuard for normal operation
     tmc2209_write_reg(0x40, TMC_STALLGUARD_THRESH_OPERATE);
@@ -538,8 +527,8 @@ esp_err_t lock_state_move_to_unlock(void) {
     stepper_enable();
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // For unlock, we go CW (opposite of calibration which went CCW to find lock)
-    stepper_dir_t motor_dir = (dir == MAGNET_DIR_CW_POSITIVE) ? STEPPER_DIR_CW : STEPPER_DIR_CCW;
+    // Unlock always goes CW (opposite of lock/calibration direction)
+    stepper_dir_t motor_dir = STEPPER_DIR_CW;
     gpio_set_level(PIN_TMC_DIR, motor_dir);
     
     // Reset encoder revolution counter to track how far we've gone
