@@ -96,10 +96,10 @@
 #define TMC_MICROSTEPS          16              // Microsteps per full step
 
 // StallGuard threshold (0-255)
-// Lower = more sensitive, Higher = less sensitive
-// Two thresholds: sensitive for calibration, less sensitive for normal operation
-#define TMC_STALLGUARD_THRESH_CALIBRATE  40   // Calibration threshold (more sensitive)
-#define TMC_STALLGUARD_THRESH_OPERATE    40   // Normal operation threshold (less sensitive)
+// Higher = more sensitive (stall triggers at higher SG values)
+// Lower = less sensitive (only triggers when SG is very low)
+#define TMC_STALLGUARD_THRESH_CALIBRATE  100   // Calibration threshold (more sensitive)
+#define TMC_STALLGUARD_THRESH_OPERATE    10    // Normal operation threshold (less sensitive)
 #define TMC_STALLGUARD_THRESH   TMC_STALLGUARD_THRESH_OPERATE  // Default for legacy code
 
 // StallGuard filter (true = enable 4-step filter)
@@ -133,7 +133,7 @@
 #define LOCK_MAX_STEPS          (MOTOR_STEPS_PER_REV * TMC_MICROSTEPS * 4)  // 4 full revs max
 
 // Stall-based movement settings
-#define LOCK_SPEED_HZ           8000            // Speed for lock/unlock (Hz) - ~150 RPM with 16 microsteps
+#define LOCK_SPEED_HZ           4000            // Speed for lock/unlock (Hz) - ~150 RPM with 16 microsteps
 #define CALIBRATE_SPEED_HZ      2000            // Speed for calibration (Hz) - slower for reliable stall detection
 #define LOCK_BACKOFF_STEPS      50              // Steps to back off after stall detected
 #define LOCK_TIMEOUT_MS         10000           // Maximum time for lock/unlock operation
@@ -142,7 +142,7 @@
 // Lock State Tracking Settings
 // -----------------------------------------------------------------------------
 #define LOCK_ANGLE_TOLERANCE_DEG    5.0f        // Tolerance for considering position "locked" (degrees)
-#define UNLOCK_ROTATION_DEG         350.0f      // Degrees to rotate for unlock (less than full turn to avoid same angle)
+#define UNLOCK_ROTATION_DEG         290.0f      // Degrees to rotate for unlock
 #define ENCODER_POLL_INTERVAL_MS    100         // How often to poll encoder (ms)
 #define LOCK_BACKOFF_DEG            5.0f        // Degrees to back off after calibration stall
 
