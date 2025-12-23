@@ -74,6 +74,7 @@
 // Status LED
 // -----------------------------------------------------------------------------
 #define PIN_LED                 GPIO_NUM_8      // Built-in LED on Super Mini
+#define LED_ACTIVE_LOW          true            // ESP32-C3 Super Mini LED is active LOW
 
 // -----------------------------------------------------------------------------
 // TMC2209 UART Configuration

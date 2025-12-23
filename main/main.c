@@ -35,7 +35,8 @@ static void led_init(void) {
 }
 
 static void led_set(bool on) {
-    gpio_set_level(PIN_LED, on ? 1 : 0);
+    // LED_ACTIVE_LOW: 0 = ON, 1 = OFF
+    gpio_set_level(PIN_LED, (on ^ LED_ACTIVE_LOW) ? 1 : 0);
 }
 
 static void led_blink(int count, int on_ms, int off_ms) {

@@ -19,12 +19,17 @@ static int s_retry_num = 0;
 static bool s_was_connected = false;  // Track if we were ever connected
 static TaskHandle_t s_led_task = NULL;
 
+// Helper to set LED with active-low support
+static inline void wifi_led_set(bool on) {
+    gpio_set_level(PIN_LED, (on ^ LED_ACTIVE_LOW) ? 1 : 0);
+}
+
 // LED blinking task for connection status
 static void wifi_led_blink_task(void *pvParameters) {
     while (1) {
-        gpio_set_level(PIN_LED, 1);
+        wifi_led_set(true);
         vTaskDelay(pdMS_TO_TICKS(100));
-        gpio_set_level(PIN_LED, 0);
+        wifi_led_set(false);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -40,7 +45,7 @@ static void stop_led_blink(bool led_on) {
         vTaskDelete(s_led_task);
         s_led_task = NULL;
     }
-    gpio_set_level(PIN_LED, led_on ? 1 : 0);
+    wifi_led_set(led_on);
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
