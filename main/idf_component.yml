@@ -1,0 +1,8 @@
+## IDF Component Manager Manifest File
+## ESP32-C3 Smart Lock Controller with TMC2209
+
+dependencies:
+  idf:
+    version: '>=5.0'
+  cJSON: ^1.7.18
+  espressif/mdns: ^1.4.0

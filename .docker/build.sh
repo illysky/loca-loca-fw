@@ -1,0 +1,1 @@
+docker build -t esp-idf --build-arg USER_UID=$(id -u) --no-cache . --network=host

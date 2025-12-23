@@ -1,0 +1,22 @@
+{
+    "name": "esp-idf",
+    "image": "esp-idf",
+    "runArgs" : ["--rm", "--privileged", "--net=host"],  
+    "userEnvProbe": "loginInteractiveShell",
+    "mounts": 
+    [
+      { "source": "/media/", "target": "/media/", "type": "bind" },
+      { "source": "/dev/", "target": "/dev/", "type": "bind" }
+    ],
+    "customizations": 
+    {
+      "vscode":
+      {
+        "extensions": 
+        [
+          "ms-vscode.cpptools", 
+          "ms-vscode.cpptools-extension-pack"
+		    ]
+      }
+  }
+}
