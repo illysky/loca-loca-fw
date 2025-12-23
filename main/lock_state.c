@@ -256,7 +256,7 @@ esp_err_t lock_state_calibrate(void) {
     int32_t steps_taken = 0;
     
     // Use a slower speed for calibration
-    uint32_t step_delay_us = 1000000 / (LOCK_SPEED_HZ / 2);  // Half speed
+    uint32_t step_delay_us = 1000000 / CALIBRATE_SPEED_HZ;  // Slower for reliable stall detection
     
     while (steps_taken < max_steps && !stall_detected) {
         // Generate step

@@ -133,7 +133,8 @@
 #define LOCK_MAX_STEPS          (MOTOR_STEPS_PER_REV * TMC_MICROSTEPS * 4)  // 4 full revs max
 
 // Stall-based movement settings
-#define LOCK_SPEED_HZ           4000            // Speed for lock/unlock (Hz) - ~75 RPM with 16 microsteps
+#define LOCK_SPEED_HZ           8000            // Speed for lock/unlock (Hz) - ~150 RPM with 16 microsteps
+#define CALIBRATE_SPEED_HZ      2000            // Speed for calibration (Hz) - slower for reliable stall detection
 #define LOCK_BACKOFF_STEPS      50              // Steps to back off after stall detected
 #define LOCK_TIMEOUT_MS         10000           // Maximum time for lock/unlock operation
 
