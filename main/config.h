@@ -146,6 +146,11 @@
 #define ENCODER_POLL_INTERVAL_MS    100         // How often to poll encoder (ms)
 #define LOCK_BACKOFF_DEG            5.0f        // Degrees to back off after calibration stall
 
+// Encoder-based stall detection sensitivity
+// Higher values = LESS sensitive (harder to trigger stall)
+#define STALL_MIN_MOVEMENT_DEG      1.0f        // Min movement per check to count as "moving" (lower = less sensitive)
+#define STALL_COUNT_THRESHOLD       5           // Consecutive no-movement checks before stall (higher = less sensitive)
+
 // -----------------------------------------------------------------------------
 // WiFi Configuration
 // -----------------------------------------------------------------------------

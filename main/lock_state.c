@@ -250,11 +250,9 @@ esp_err_t lock_state_calibrate(void) {
     
     uint32_t step_delay_us = 1000000 / CALIBRATE_SPEED_HZ;
     
-    // Encoder-based stall detection
+    // Encoder-based stall detection (using config values)
     float last_check_angle = start_angle;
     int stall_count = 0;
-    const int STALL_THRESHOLD = 3;  // Number of consecutive checks with no movement
-    const float MIN_MOVEMENT_DEG = 2.0f;  // Minimum movement to consider "not stalled"
     
     while (steps_taken < max_steps && !stall_detected) {
         // Generate step
@@ -270,11 +268,11 @@ esp_err_t lock_state_calibrate(void) {
             float current_angle = read_encoder_degrees();
             float movement = fabsf(angle_diff(last_check_angle, current_angle));
             
-            if (movement < MIN_MOVEMENT_DEG) {
+            if (movement < STALL_MIN_MOVEMENT_DEG) {
                 stall_count++;
                 ESP_LOGI(TAG, "No movement detected (%d/%d), angle=%.1f°", 
-                         stall_count, STALL_THRESHOLD, current_angle);
-                if (stall_count >= STALL_THRESHOLD) {
+                         stall_count, STALL_COUNT_THRESHOLD, current_angle);
+                if (stall_count >= STALL_COUNT_THRESHOLD) {
                     ESP_LOGI(TAG, "Stall detected at step %ld - encoder stopped moving", (long)steps_taken);
                     stall_detected = true;
                 }
@@ -399,11 +397,9 @@ esp_err_t lock_state_move_to_lock(void) {
     int max_steps = LOCK_MAX_STEPS;
     bool stall_detected = false;
     
-    // Encoder-based stall detection
+    // Encoder-based stall detection (using config values)
     float last_check_angle = start_angle;
     int stall_count = 0;
-    const int STALL_THRESHOLD = 3;
-    const float MIN_MOVEMENT_DEG = 2.0f;
     
     while (steps < max_steps) {
         // Generate step
@@ -425,9 +421,9 @@ esp_err_t lock_state_move_to_lock(void) {
             
             // Encoder-based stall detection (lever not down!)
             float movement = fabsf(angle_diff(last_check_angle, curr));
-            if (movement < MIN_MOVEMENT_DEG && steps > 200) {
+            if (movement < STALL_MIN_MOVEMENT_DEG && steps > 200) {
                 stall_count++;
-                if (stall_count >= STALL_THRESHOLD) {
+                if (stall_count >= STALL_COUNT_THRESHOLD) {
                     ESP_LOGW(TAG, "⚠️ STALL detected during lock - lever not down! (encoder stopped)");
                     stall_detected = true;
                     break;
@@ -528,11 +524,10 @@ esp_err_t lock_state_move_to_unlock(void) {
     int max_steps = LOCK_MAX_STEPS * 2;
     float target_revs = UNLOCK_ROTATION_DEG / 360.0f;
     
-    // Encoder-based stall detection
+    // Encoder-based stall detection (using config values)
     float last_revs = 0;
     int stall_count = 0;
-    const int STALL_THRESHOLD = 3;
-    const float MIN_MOVEMENT_REVS = 0.005f;  // ~2 degrees
+    const float MIN_MOVEMENT_REVS = STALL_MIN_MOVEMENT_DEG / 360.0f;
     
     while (steps < max_steps) {
         // Generate step
@@ -557,7 +552,7 @@ esp_err_t lock_state_move_to_unlock(void) {
             float movement = fabsf(revs - last_revs);
             if (movement < MIN_MOVEMENT_REVS && steps > 500) {
                 stall_count++;
-                if (stall_count >= STALL_THRESHOLD) {
+                if (stall_count >= STALL_COUNT_THRESHOLD) {
                     ESP_LOGW(TAG, "Stall detected during unlock (encoder stopped) at revs=%.2f", revs);
                     break;
                 }
